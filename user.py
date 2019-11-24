@@ -6,15 +6,23 @@ import sys
 class User():
     def __init__(self, sys_path: str = "", user_id: int = 0, first_name: str = "No name", second_name: str = "No name"):
         self.user_id = user_id
+
         self.first_name = first_name
         self.second_name = second_name
-        # создаем папку сервера
+        # создаем папку
         self.sys_path = sys_path
         self.folder_path = sys_path + "\\" + "users_data"
         if not os.path.exists(self.folder_path):
             os.makedirs(self.folder_path)
         #
         self.file_name = "users"
+        self._init_in_file()
+
+    def _init_in_file(self):
+        json_file = self._open()
+        if str(self.user_id) not in json_file:
+            json_file[str(self.user_id)] = {}
+            self._write(json_file)
 
     def _open(self):
         try:
@@ -52,6 +60,7 @@ class User():
             if key in json_file[str(self.user_id)]:
                 return json_file[str(self.user_id)][key]
         return None
+
 
     def get_first_name(self):
         return self.first_name

@@ -1,8 +1,10 @@
 import datetime
-import time
 import json
-import sys
 import os
+import random
+import sys
+import time
+from threading import Thread
 
 import requests
 import vk_api
@@ -10,10 +12,9 @@ from vk_api.bot_longpoll import VkBotEventType
 from vk_api.bot_longpoll import VkBotLongPoll
 
 import command_headman
+import database
 import logining
 
-
-from threading import Thread
 
 class Server:
 
@@ -40,11 +41,15 @@ class Server:
         # инициализация класса, обрабатывающего команды
         self.command = command_headman.Command_headman(self.folder_path, self.time_delta_hour)
         self.log = logining.Logining(self.folder_path, self.time_delta_hour)
+        # --------------------------------------------------------------------------------------------------------------
+        # инициализация базы данных
+        self.database = database.DataBase(sys_path, "data-test-bot")
 
     def _get_document(self, file_path, file_name, owner_id):
         try:
             # получение ссылки куда будет загружен файл
-            upload_url = self.vk.method("docs.getMessagesUploadServer", {"type": "doc", "peer_id": owner_id})["upload_url"]
+            upload_url = self.vk.method("docs.getMessagesUploadServer", {"type": "doc", "peer_id": owner_id})[
+                "upload_url"]
             # print(upload_url)
             # отправляем файл на загрузку
             response = requests.post(upload_url, files={"file": open(file_path, "rb")})
@@ -87,8 +92,14 @@ class Server:
         except Exception as e:
             return answer  # logining(sys._getframe().f_code.co_name, E.args)
 
-    def _send_message(self, message):
+    def _send_message(self, message=None, peer_id=None, text=None, keyboard=None, attachment=None):
         try:
+            if message is None:
+                message: dict = {"peer_id": peer_id, "message": text, "random_id": random.randint(1, 2147483647)}
+                if keyboard is not None:
+                    message["keyboard"] = keyboard
+                if attachment is not None:
+                    message["attachment"] = attachment
             self.vk.method("messages.send", message)
         except Exception as e:
             # logining(sys._getframe().f_code.co_name, E.args)
@@ -110,31 +121,31 @@ class Server:
                 elif answer is not False:
                     self._send_message(answer)
             if answer is not None:
-                time.sleep(100) # если ответ не пустота то пары есть, нужно заснуть чтобы не было повторной расслыки
+                time.sleep(100)  # если ответ не пустота то пары есть, нужно заснуть чтобы не было повторной расслыки
             self.log.error(sys._getframe().f_code.co_name, "123")
 
+    def is_follower(self, id=None):
+        if id is not None:
+            all_groups_id = self.vk.method("groups.getMembers", {"group_id": str(self.group_id)})["items"]
+            if int(id) in all_groups_id:
+                return True
+        return False
 
+    # API ПОДОБРАТЬ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     def listen(self):
         for event in self.long_poll.listen():  # Слушаем сервер
             # Пришло новое сообщение
             if event.type == VkBotEventType.MESSAGE_NEW:
                 user_id = event.object["message"]["from_id"]
                 first_name, second_name = self._get_user_name(user_id)
-                message = event.object["message"]
-
-
-                answer = self.command.message(user_id, first_name, second_name, message)
-                answer = self._upload_attachment(answer)
-                answer = self._decode_keyboard(answer)
-                self._send_message(answer)
-
-
-def plan(name):
-    print("Держи план за {0} семестр".format(name))
-
-
-def menu():
-    print("Держи меню")
+                if self.is_follower(user_id):
+                    message = event.object["message"]
+                    answer = self.command.message(user_id, first_name, second_name, message)
+                    answer = self._upload_attachment(answer)
+                    answer = self._decode_keyboard(answer)
+                    self._send_message(answer)
+                else:
+                    self._send_message(peer_id=user_id, text=first_name + ", сначала подпишитесь на сообщество!")
 
 
 if __name__ == "__main__":
@@ -148,4 +159,4 @@ if __name__ == "__main__":
     p2 = Thread(target=serv.mailing)
     p1 = Thread(target=serv.listen)
     p1.start()
-    p2.start()
+    # p2.start()
