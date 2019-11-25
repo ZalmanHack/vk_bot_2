@@ -2,8 +2,8 @@ from command import *
 import user
 
 class Command_headman(Command):
-    def __init__(self, sys_path: str = "", time_delta_hour: int = 3):
-        Command.__init__(self, sys_path, time_delta_hour)
+    def __init__(self, sys_path: str = "", time_delta_hour: int = 3, base_name: str = "Default"):
+        Command.__init__(self, sys_path, time_delta_hour, base_name)
         # виды клавиатур
         self.KBRD_HEADMAN = "headman"
         self.KBRD_MAKE_ANN = "make_announcement"
@@ -25,7 +25,7 @@ class Command_headman(Command):
 
     def _menus_processing(self, user_meta: user.User, message: dict = ()):
         # получаем последнюю команду (в файл записываются только те, что имеют контекст, например открытое меню)
-        end_command = user_meta.get(self.FILE_COMAND_END)
+        end_command = self.database.get_user_end_command(user_meta.user_id)
         # проверяем последние действия пользователя с  контекстом
         if end_command == self.KBRD_HEADMAN:  # если последнее действие - открытие меню старосты
             return self._menu_headman(user_meta, message)
@@ -42,9 +42,11 @@ class Command_headman(Command):
             try:
                 payload = json.loads(message["payload"])["button"]
                 if "Headman_Settings" == payload:
-                    user_meta.add(self.FILE_COMAND_END, self.KBRD_HEADMAN)
+                    self.database.write_user_end_command(user_meta.user_id, self.KBRD_HEADMAN)
                     return {self.ANS_MESSAGE: "{0}, у тебя есть права старосты!".format(user_meta.first_name),
-                            self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_HEADMAN)}
+                            self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_HEADMAN),
+                            self.ANS_PEER_ID: user_meta.user_id,
+                            self.AMS_RAND_ID: random.randint(1, 2147483647)}
             except Exception as e:
                 return
 
@@ -52,13 +54,17 @@ class Command_headman(Command):
         try:
             payload = json.loads(message["payload"])["button"]
             if "Main_menu" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
+                self.database.write_user_end_command(user_meta.user_id, "")
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Make_announcement" == payload:
-                user_meta.add(self.FILE_COMAND_END, self.KBRD_MAKE_ANN)
+                self.database.write_user_end_command(user_meta.user_id, self.KBRD_MAKE_ANN)
                 return {self.ANS_MESSAGE: "{0}, Введите текст объяявления:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MAKE_ANN)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MAKE_ANN),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
         except Exception as e:
             return
 
@@ -68,9 +74,22 @@ class Command_headman(Command):
             if "button" in payload:
                 payload = payload["button"]
                 if "Main_menu" == payload:
-                    user_meta.add(self.FILE_COMAND_END, "")
+                    self.database.write_user_end_command(user_meta.user_id, "")
                     return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                            self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
-        user_meta.add(self.FILE_COMAND_END, self.KBRD_HEADMAN)
-        return {self.ANS_MESSAGE: "{0}, готово! {1}:".format(user_meta.first_name, message["text"]),
-                self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_HEADMAN)}
+                            self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                            self.ANS_PEER_ID: user_meta.user_id,
+                            self.AMS_RAND_ID: random.randint(1, 2147483647)}
+        self.database.write_user_end_command(user_meta.user_id, self.KBRD_HEADMAN)
+        # получаем id людей нашей группы
+        group_id = self.database.get_group_id(user_meta.user_id)
+        users_ids = self.database.get_group_users_ids(group_id)
+        answers = []
+        for user_id in users_ids:
+            answers.append({self.ANS_MESSAGE: message["text"],
+                            self.ANS_PEER_ID: user_id,
+                            self.AMS_RAND_ID: random.randint(1, 2147483647)})
+            # в ответ, который пойдет старосте пишем другие данные
+            if user_id == user_meta.user_id:
+                answers[-1][self.ANS_MESSAGE] = "Объявление успешно отправлено"
+                answers[-1][self.ANS_KEYBOARD] = self.KBRD_HEADMAN
+        return answers

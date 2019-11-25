@@ -4,6 +4,12 @@ import sys
 
 
 class User():
+    def __init__(self, user_id: int = 0, first_name: str = "No name", second_name: str = "No name"):
+        self.user_id = user_id
+        self.first_name = first_name
+        self.second_name = second_name
+
+    """
     def __init__(self, sys_path: str = "", user_id: int = 0, first_name: str = "No name", second_name: str = "No name"):
         self.user_id = user_id
 
@@ -45,6 +51,7 @@ class User():
         file.close()
         return data
 
+
     def add(self, key: str = "", data=None):
         if data is None:
             data = ""
@@ -67,7 +74,7 @@ class User():
 
     def get_second_name(self):
         return self.second_name
-
+"""
 
 if __name__ == "__main__":
     test = User()

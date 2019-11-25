@@ -1,3 +1,4 @@
+import json
 import os
 
 from peewee import *
@@ -7,10 +8,10 @@ class DataBase():
     def __init__(self, sys_path: str = ".", file_name: str = "default"):
         self.file_name = file_name + ".db"
         self.sys_path = sys_path
-        self.folder_path = sys_path + "/data_base"
+        self.folder_path = sys_path + "\\data_base"
         if not os.path.exists(self.folder_path):
             os.makedirs(self.folder_path)
-        self.db = SqliteDatabase("{0}/{1}".format(self.folder_path, self.file_name))
+        self.db = SqliteDatabase("{0}\\{1}".format(self.folder_path, self.file_name))
 
         class BaseModel(Model):
             class Meta:
@@ -25,14 +26,12 @@ class DataBase():
 
         class Groups(BaseModel):
             Name = CharField()
+            Timetable = BlobField()
             Department = ForeignKeyField(Departments, related_name='Group_department')
 
-        class Commands(BaseModel):
-            Name = CharField()
-
         class Users(BaseModel):
-            User_id = CharField()
-            End_command = ForeignKeyField(Commands, related_name='User_end_command')
+            User_id = BigIntegerField()
+            End_command = CharField(null=True)
             Buffer_data = BlobField(null=True)
             Morning_mailing = BooleanField()
             Evening_mailing = BooleanField()
@@ -42,15 +41,13 @@ class DataBase():
         self.Faculties = Faculties
         self.Departments = Departments
         self.Groups = Groups
-        self.Commands = Commands
         self.Users = Users
 
-        if not os.path.isfile("{0}/{1}".format(self.folder_path, self.file_name)):
+        if not os.path.isfile("{0}\\{1}".format(self.folder_path, self.file_name)):
             self.db.connect()
             self.Faculties.create_table()
             self.Departments.create_table()
             self.Groups.create_table()
-            self.Commands.create_table()
             self.Users.create_table()
         else:
             self.db.connect()
@@ -74,50 +71,294 @@ class DataBase():
             else:
                 group_rows = self.Groups.select().where(self.Groups.Name == str(group))
                 if group_rows.exists():
-                    self.Users.create(User_id=user_id, End_command=1, Buffer_data="2222", Morning_mailing=1,
+                    self.Users.create(User_id=user_id, End_command="", Buffer_data="2222", Morning_mailing=1,
                                       Evening_mailing=1, Headman=0,
                                       Group=group_rows.first())
                 else:
                     return False
         return True
 
+    def get_morning_m(self, user_id=None):
+        if user_id is not None:
+            users = self.Users.select().where(self.Users.User_id == int(user_id))
+            if users.exists():
+                return bool(users.first().Morning_mailing)
+        return False
+
+    def get_evening_m(self, user_id=None):
+        if user_id is not None:
+            users = self.Users.select().where(self.Users.User_id == int(user_id))
+            if users.exists():
+                return bool(users.first().Evening_mailing)
+        return False
+
     def get_group_name(self, user_id=None):
-        if user_id is None:
-            return False
-        users = self.Users.select().where(self.Users.User_id == int(user_id))
-        if users.exists():
-            return users.first().Group.Name
-        else:
-            return False
+        if user_id is not None:
+            users = self.Users.select().where(self.Users.User_id == int(user_id))
+            if users.exists():
+                return users.first().Group.Name
+        return
+
+    def get_group_id(self, user_id=None):
+        if user_id is not None:
+            users = self.Users.select().where(self.Users.User_id == int(user_id))
+            if users.exists():
+                return users.first().Group_id
+        return
 
     def get_department_name(self, user_id=None):
-        if user_id is None:
-            return False
-        users = self.Users.select().where(self.Users.User_id == int(user_id))
-        if users.exists():
-            return users.first().Group.Department.Name
-        else:
-            return False
+        if user_id is not None:
+            users = self.Users.select().where(self.Users.User_id == int(user_id))
+            if users.exists():
+                return users.first().Group.Department.Name
+        return
 
-    def get_group_ids(self, group_name=None):
-        if group_name is None:
-            return False
-        users = self.Users.select().join(self.Groups).where(self.Groups.Name == str(group_name))
-        if users.exists():
-            return [a.User_id for a in users]
-        return False
+    def get_group_users_ids(self, group_id=None):
+        if group_id is not None:
+            users = self.Users.select().where(self.Users.Group == group_id)
+            if users.exists():
+                return [a.User_id for a in users]
+        return []
 
     def get_department_ids(self, department_name=None):
         if department_name is None:
-            return False
+            return
         users = self.Users.select().join(self.Groups).join(self.Departments).where(
             self.Departments.Name == str(department_name))
         if users.exists():
             return [a.User_id for a in users]
-        return False
+        return
+
+    def get_all_ids_groups(self):
+        groups = self.Groups.select(self.Groups.id)
+        if groups.exists():
+            return [group.id for group in groups]
+        return []
+
+    def get_timetable(self, group_id=None):
+        if group_id is not None:
+            timetable = self.Groups.select(self.Groups.Timetable).where(self.Groups.id == int(group_id))
+            if timetable.exists():
+                return json.loads(timetable.first().Timetable)
+        return
+
+    def get_user_end_command(self, user_id=None):
+        if type(user_id) == int:
+            end_command = self.Users.select().where(self.Users.User_id == user_id)
+            if end_command.exists():
+                return end_command.first().End_command
+
+    def write_user_end_command(self, user_id=None, end_command: str = ""):
+        if type(user_id) == int:
+            user = self.Users.select().where(self.Users.User_id == user_id)
+            if user.exists():
+                user.first().End_command = end_command
+                user.first().save()
+
+    def get_user_morning_m(self, user_id=None):
+        if type(user_id) == int:
+            result = self.Users.select().where(self.Users.User_id == user_id)
+            if result.exists():
+                return result.first().Morning_mailing
+
+    def write_user_morning_m(self, user_id=None, value: int = 1):
+        if type(user_id) == int:
+            user = self.Users.select().where(self.Users.User_id == user_id)
+            if user.exists():
+                user.first().Morning_mailing = value
+                user.first().save()
+
+    def get_user_evening_m(self, user_id=None):
+        if type(user_id) == int:
+            result = self.Users.select().where(self.Users.User_id == user_id)
+            if result.exists():
+                return result.first().Evening_mailing
+
+    def write_user_evening_m(self, user_id=None, value: int = 1):
+        if type(user_id) == int:
+            user = self.Users.select().where(self.Users.User_id == user_id)
+            if user.exists():
+                user.first().Morning_evening = value
+                user.first().save()
 
     def _TEST_create(self):
-        self.Commands.create(Name="Операция")
+        timetab = {
+            "top": {
+                "1": {
+                    "2": {
+                        "discipline": "Технологии компьютерного проектирования",
+                        "class": "11.401",
+                        "teacher": "Гудаев О.А",
+                        "type": "лекция"
+                    },
+                    "3": {
+                        "discipline": "Программное обеспечение сетей",
+                        "class": "11.412",
+                        "teacher": "Сорокин Р.А.",
+                        "type": "лекция"
+                    }
+                },
+                "2": {
+                    "1": {
+                        "discipline": "Технологии распределительных систем и параллельных вычислений",
+                        "class": "11.402",
+                        "teacher": "Едемская Е.Н.",
+                        "type": "лекция"
+                    },
+                    "2": {
+                        "discipline": "Стандартизация и сертификация в сфере IT",
+                        "class": "6.309",
+                        "teacher": "Клименко И.В.",
+                        "type": "лекция"
+                    },
+                    "3": {
+                        "discipline": "Стандартизация и сертификация в сфере IT",
+                        "class": "6.306",
+                        "teacher": "Клименко И.В.",
+                        "type": "лабораторная"
+                    }
+                },
+                "3": {
+                    "2": {
+                        "discipline": "Технологии распределительных систем и параллельных вычислений",
+                        "class": "11.401",
+                        "teacher": "Едемская Е.Н.",
+                        "type": "лабораторная"
+                    },
+                    "3": {
+                        "discipline": "Web-технологияя и web-программирование",
+                        "class": "11.403",
+                        "teacher": "Сорокин Р.А.",
+                        "type": "лекция"
+                    },
+                    "4": {
+                        "discipline": "Менеджмент",
+                        "class": "3 корпус т.ц. №1",
+                        "teacher": "Попова Е.А.",
+                        "type": "лекция"
+                    }
+                },
+                "4": {
+                    "3": {
+                        "discipline": "Технологии создания программных продуктов",
+                        "class": "11.403",
+                        "teacher": "Маслова Е.А.",
+                        "type": "лекция"
+                    },
+                    "4": {
+                        "discipline": "Корпоративные информационные системы",
+                        "class": "11.412",
+                        "teacher": "Ольшевский А.И.",
+                        "type": "лабораторная"
+                    }
+                },
+                "5": {
+                    "2": {
+                        "discipline": "Корпоративные информационные системы",
+                        "class": "11.402",
+                        "teacher": "Ольшевский А.И.",
+                        "type": "лекция"
+                    },
+                    "3": {
+                        "discipline": "Менеджмент",
+                        "class": "3.309а",
+                        "teacher": "Попова Е.А.",
+                        "type": "практика"
+                    }
+                }
+            },
+            "lower": {
+                "1": {
+                    "2": {
+                        "discipline": "Технологии компьютерного проектирования",
+                        "class": "11.411",
+                        "teacher": "Гудаев О.А",
+                        "type": "лабораторная"
+                    },
+                    "3": {
+                        "discipline": "Программное обеспечение сетей",
+                        "class": "11.412",
+                        "teacher": "Сорокин Р.А.",
+                        "type": "лекция"
+                    },
+                    "4": {
+                        "discipline": "Web-технологияя и web-программирование",
+                        "class": "11.411",
+                        "teacher": "Радевич Е.В.",
+                        "type": "лабораторная"
+                    }
+                },
+                "2": {
+                    "1": {
+                        "discipline": "Технологии распределительных систем и параллельных вычислений",
+                        "class": "11.402",
+                        "teacher": "Едемская Е.Н.",
+                        "type": "лекция"
+                    },
+                    "2": {
+                        "discipline": "Стандартизация и сертификация в сфере IT",
+                        "class": "6.309",
+                        "teacher": "Клименко И.В.",
+                        "type": "лекция"
+                    }
+                },
+                "3": {
+                    "1": {
+                        "discipline": "Технологии создания программных продуктов",
+                        "class": "11.403",
+                        "teacher": "Маслова Е.А.",
+                        "type": "лабораторная"
+                    },
+                    "2": {
+                        "discipline": "Технологии распределительных систем и параллельных вычислений",
+                        "class": "11.401",
+                        "teacher": "Едемская Е.Н.",
+                        "type": "лабораторная"
+                    },
+                    "3": {
+                        "discipline": "Web-технологияя и web-программирование",
+                        "class": "11.403",
+                        "teacher": "Сорокин Р.А.",
+                        "type": "лекция"
+                    },
+                    "4": {
+                        "discipline": "Менеджмент",
+                        "class": "3 корпус т.ц. №1",
+                        "teacher": "Попова Е.А.",
+                        "type": "лекция"
+                    }
+                },
+                "4": {
+                    "3": {
+                        "discipline": "Технологии создания программных продуктов",
+                        "class": "11.403",
+                        "teacher": "Маслова Е.А.",
+                        "type": "лекция"
+                    },
+                    "4": {
+                        "discipline": "Корпоративные информационные системы",
+                        "class": "11.412",
+                        "teacher": "Ольшевский А.И.",
+                        "type": "лабораторная"
+                    }
+                },
+                "5": {
+                    "2": {
+                        "discipline": "Корпоративные информационные системы",
+                        "class": "11.402",
+                        "teacher": "Ольшевский А.И.",
+                        "type": "лекция"
+                    },
+                    "3": {
+                        "discipline": "Программное обеспечение сетей",
+                        "class": "11.411",
+                        "teacher": "Сорокин Р.А.",
+                        "type": "лабораторная"
+                    }
+                }
+            }
+        }
+        timetab = json.dumps(timetab).encode("utf-8")
 
         self.Faculties.create(Name="КНТ")
         self.Faculties.create(Name="КИТА")
@@ -128,42 +369,28 @@ class DataBase():
         self.Departments.create(Name="ПИ", Faculty=1)
         self.Departments.create(Name="ЭКО", Faculty=3)
 
-        self.Groups.create(Name="СИИ-16", Department=self.Departments.get(self.Departments.Name == "ИИСА"))
-        self.Groups.create(Name="ПОИС-16", Department=self.Departments.get(self.Departments.Name == "ИИСА"))
-        self.Groups.create(Name="ПИ-16", Department=self.Departments.get(self.Departments.Name == "ПИ"))
-
-
-class Faculties(Model):
-    Name = CharField()
-
-
-class Departments(Model):
-    Name = CharField()
-    Faculty = ForeignKeyField(Faculties, related_name='Department_faculty')
-
-
-class Groups(Model):
-    Name = CharField()
-    Department = ForeignKeyField(Departments, related_name='Group_department')
-
-
-class Commands(Model):
-    Name = CharField()
-
-
-class Users(Model):
-    User_id = CharField()
-    End_command = ForeignKeyField(Commands, related_name='User_end_command')
-    Morning_mailing = BooleanField()
-    Evening_mailing = BooleanField()
-    Headman = BooleanField()
-    Group = ForeignKeyField(Groups, related_name='Group_user')
+        self.Groups.create(Name="СИИ-16", Timetable=timetab,
+                           Department=self.Departments.get(self.Departments.Name == "ИИСА"))
+        self.Groups.create(Name="ПОИС-16", Timetable=timetab,
+                           Department=self.Departments.get(self.Departments.Name == "ИИСА"))
+        self.Groups.create(Name="ПИ-16", Timetable=timetab,
+                           Department=self.Departments.get(self.Departments.Name == "ПИ"))
+        """
+        self.Groups.create(Name="СИИ-16", Timetable=str.encode("Тут что то есть 😋", encoding='utf-8'),
+                           Department=self.Departments.get(self.Departments.Name == "ИИСА"))
+        """
+        self.init_user(88233396, "СИИ-16")
+        self.init_user(216634551, "СИИ-16")
+        self.init_user(151232514, "СИИ-16")
 
 
 if __name__ == "__main__":
     data = DataBase(file_name="DonNTU")
     data._TEST_create()
 
+    print(data.get_all_ids_groups())
+    print(data.get_timetable(1))
+    """
     print(data.init_user(21000, "СИИ-16"))
     print(data.init_user(22000, "СИИ-16"))
     print(data.init_user(23000, "СИИ-16"))
@@ -173,8 +400,7 @@ if __name__ == "__main__":
     print(data.init_user(10001))
 
     print(data.get_group_name(10000))
-    print(data.get_group_ids("СИИ-16"))
-
+    """
     print(data.get_department_name(10000))
     print(data.get_department_ids("ИИСА"))
 """

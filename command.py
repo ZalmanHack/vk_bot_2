@@ -2,6 +2,7 @@ import datetime
 import json
 import random
 
+import database
 import keyboard
 import timetable
 import user
@@ -53,7 +54,7 @@ class Command():
                    [self.keyboards.get_button(label="Главное меню", color="negative", payload="Main_menu")]]
         self.keyboards.addKeyboard(self.KBRD_EVENING_M, False, None, buttons)
 
-    def __init__(self, sys_path: str = "", time_delta_hour: int = 3):
+    def __init__(self, sys_path: str = "", time_delta_hour: int = 3, base_name: str = "Default"):
         # инициализация времени и часового пояса
         self.time_delta_hour = time_delta_hour
         self.time_delta = datetime.timedelta(hours=self.time_delta_hour, minutes=0)
@@ -72,57 +73,54 @@ class Command():
         self.KBRD_SETTINGS = "settings"
         self.KBRD_MORNING_M = "morning_mailing"
         self.KBRD_EVENING_M = "evening_mailing"
-        # команды пользователя (для user class)
-        self.FILE_COMAND_END = "end_command"
-        self.FILE_COMAND_MORNING_M = "morning_mailing"
-        self.FILE_COMAND_EVENING_M = "evening_mailing"
         # модуль расписания
         self.timetale = timetable.Timetable(self.sys_path, self.time_delta_hour)
         # модуль клавиатур
         self.keyboards = keyboard.KeyBoard()
         # инициализация клавиатур
         self._init_keyboards()
+        # база данных
+        self.base_name = base_name
+        self.database = database.DataBase(sys_path, self.base_name)
 
+    def mailing(self, group_id=None, time=None):
+        if group_id is not None:
+            result = []
+            table = self.database.get_timetable(group_id)
+            users_ids = self.database.get_group_users_ids(group_id)
+            for user_id in users_ids:
+                answer_morning = self._mailing_tb_morning(user_id, table, time)
+                answer_evening = self._mailing_tb_evening(user_id, table, time)
+                if answer_morning is not None:
+                    result.append(answer_morning)
+                if answer_evening is not None:
+                    result.append(answer_evening)
+            if result:
+                return result
 
-
-
-    def mailing(self, user_id: int = 0, first_name: str = "No name", second_name: str = "No name", type: str= "", time=None):
-        user_meta = user.User(self.sys_path, user_id, first_name, second_name)
-        result = None
-        if type == "timetable":
-            result = self._mailing_tb_morning(user_meta, time)
-        if result is None:
-            result = self._mailing_tb_evening(user_meta, time)
-        return result
-
-    def _mailing_tb_morning(self, user_meta: user.User, time=None):
+    def _mailing_tb_morning(self, user_id=None, table=None, time=None):  # GOOD
         # утренняя рассылка
-        user_morning_mailing = user_meta.get(self.FILE_COMAND_MORNING_M)
-        message = self.timetale.get_schedule_now(time)
-        if message is not None:
-            if user_morning_mailing == 1:
-                return {self.ANS_MESSAGE: message,
-                        self.AMS_RAND_ID: random.randint(1, 2147483647),
-                        self.ANS_PEER_ID: user_meta.user_id}
-            else:
-                return False
-
-    def _mailing_tb_evening(self, user_meta: user.User, time=None):
-        # вечерняя рассылка
-        user_evening_mailing = user_meta.get(self.FILE_COMAND_EVENING_M)
-        message = self.timetale.get_tomorrow()
-        if message is not None:
-            if time.hour == 18 and time.minute == 0:
-                if user_evening_mailing == 1:
+        if user_id is not None and table is not None:
+            if self.database.get_morning_m(user_id):
+                message = self.timetale.get_schedule_now(table, time)
+                if message is not None:
                     return {self.ANS_MESSAGE: message,
                             self.AMS_RAND_ID: random.randint(1, 2147483647),
-                            self.ANS_PEER_ID: user_meta.user_id}
-                else:
-                    return False
+                            self.ANS_PEER_ID: user_id}
+
+    def _mailing_tb_evening(self, user_id=None, table=None, time=None):  # GOOD
+        # вечерняя рассылка
+        if user_id is not None and table is not None:
+            if self.database.get_evening_m(user_id):
+                message = self.timetale.get_tomorrow(table)
+                if message is not None:
+                    return {self.ANS_MESSAGE: message,
+                            self.AMS_RAND_ID: random.randint(1, 2147483647),
+                            self.ANS_PEER_ID: user_id}
 
     def message(self, user_id: int = 0, first_name: str = "No name", second_name: str = "No name", message: dict = ()):
         # класс работы с метаданными пользователя (по id)
-        user_meta = user.User(self.sys_path, user_id, first_name, second_name)
+        user_meta = user.User(user_id, first_name, second_name)
         # обработка входящего сообщения и получение ответа
         response = self._menus_processing(user_meta, message)
         # дополнение ответа
@@ -131,7 +129,7 @@ class Command():
 
     def _menus_processing(self, user_meta: user.User, message: dict = ()):
         # получаем последнюю команду (в файл записываются только те, что имеют контекст, например открытое меню)
-        end_command = user_meta.get(self.FILE_COMAND_END)
+        end_command = self.database.get_user_end_command(user_meta.user_id)
         # проверяем последние действия пользователя с  контекстом
         if end_command == self.KBRD_TIMETABLE:  # если последнее действие - открытие меню расписания
             return self._menu_timetable(user_meta, message)
@@ -149,66 +147,89 @@ class Command():
     def _complement_response(self, user_meta: user.User, response=None):
         if response is None:
             response: dict = {}
-            user_meta.add(self.FILE_COMAND_END, "")
+            self.database.write_user_end_command(user_meta.user_id, "")
             response[self.ANS_MESSAGE] = "{0}, вот, что я могу:".format(user_meta.first_name)
             response[self.ANS_KEYBOARD] = self.keyboards.getKeyboard(self.KBRD_MENU)
-        # так кк ответ будет безусловно, то добпаляем id и рандомный номер сообщения
-        response[self.ANS_PEER_ID] = user_meta.user_id
-        response[self.AMS_RAND_ID] = random.randint(1, 2147483647)
+            response[self.ANS_PEER_ID] = user_meta.user_id
+            response[self.AMS_RAND_ID] = random.randint(1, 2147483647)
         return response
 
     def _menu_main(self, user_meta: user.User, message: dict = ()):
         try:
             payload = json.loads(message["payload"])["button"]
             if "Couples_sch" == payload:
-                user_meta.add(self.FILE_COMAND_END, self.KBRD_TIMETABLE)
+                self.database.write_user_end_command(user_meta.user_id, self.KBRD_TIMETABLE)
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Call_sch" == payload:
                 return {self.ANS_MESSAGE: self.timetale.get_call_timetable(),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Type_of_week" == payload:
                 return {self.ANS_MESSAGE: "Сейчас " + self.timetale.get_week_type("now") + " неделя",
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Academic_plan" == payload:
-                user_meta.add(self.FILE_COMAND_END, self.KBRD_ACC_PLAN)
+                self.database.write_user_end_command(user_meta.user_id, self.KBRD_ACC_PLAN)
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_ACC_PLAN)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_ACC_PLAN),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Mailing_Settings" == payload:
-                user_meta.add(self.FILE_COMAND_END, self.KBRD_SETTINGS)
+                self.database.write_user_end_command(user_meta.user_id, self.KBRD_SETTINGS)
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_SETTINGS)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_SETTINGS),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
         except Exception as e:
             return
 
     def _menu_timetable(self, user_meta: user.User, message: dict = ()):
         try:
             payload = json.loads(message["payload"])["button"]
+            group_id = self.database.get_group_id(user_meta.user_id)
+            table = self.database.get_timetable(group_id)
             if "Sch_for_today" == payload:
-                info = self.timetale.get_today()
+                info = self.timetale.get_today(table)
                 if info is None:
                     info = "Сегодня пар нет"
                 return {self.ANS_MESSAGE: info,
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Sch_for_tomorrow" == payload:
-                info = self.timetale.get_tomorrow()
+                info = self.timetale.get_tomorrow(table)
                 if info is None:
                     info = "Завтра пар нет"
                 return {self.ANS_MESSAGE: info,
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Sch_now_week" == payload:
-                return {self.ANS_MESSAGE: self.timetale.get_week("now"),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE)}
+                return {self.ANS_MESSAGE: self.timetale.get_week(table, "now"),
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Sch_next_week" == payload:
-                return {self.ANS_MESSAGE: self.timetale.get_week("next"),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE)}
+                return {self.ANS_MESSAGE: self.timetale.get_week(table, "next"),
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Full_sch" == payload:
-                return {self.ANS_MESSAGE: self.timetale.get_all(),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE)}
+                return {self.ANS_MESSAGE: self.timetale.get_all(table),
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_TIMETABLE),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Main_menu" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
+                self.database.write_user_end_command(user_meta.user_id, "")
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
         except Exception as e:
             return
 
@@ -216,15 +237,20 @@ class Command():
         try:
             payload = json.loads(message["payload"])["button"]
             if "Main_menu" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
+                self.database.write_user_end_command(user_meta.user_id, "")
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             temp = payload.split("_")
             if len(temp) == 2 and temp[0] == "Plan":
-                user_meta.add(self.FILE_COMAND_END, self.KBRD_ACC_PLAN)
+                self.database.write_user_end_command(user_meta.user_id, self.KBRD_ACC_PLAN)
                 return {self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_ACC_PLAN),
-                        self.ANS_ATTACHMENT: {"file_path": "{0}\\academic_plan\\{1}.xlsx".format(self.sys_path, temp[1]),
-                                              "file_name": "учебный план на {0} семестр.xlsx".format(temp[1])}}
+                        self.ANS_ATTACHMENT: {
+                            "file_path": "{0}\\academic_plan\\{1}.xlsx".format(self.sys_path, temp[1]),
+                            "file_name": "учебный план на {0} семестр.xlsx".format(temp[1])},
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
         except Exception as e:
             return
 
@@ -232,37 +258,49 @@ class Command():
         try:
             payload = json.loads(message["payload"])["button"]
             if "Morning_newsletter" == payload:
-                user_meta.add(self.FILE_COMAND_END, self.KBRD_MORNING_M)
+                self.database.write_user_end_command(user_meta.user_id, self.KBRD_MORNING_M)
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MORNING_M)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MORNING_M),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Evening_newsletter" == payload:
-                user_meta.add(self.FILE_COMAND_END, self.KBRD_EVENING_M)
+                self.database.write_user_end_command(user_meta.user_id, self.KBRD_EVENING_M)
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_EVENING_M)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_EVENING_M),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Main_menu" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
+                self.database.write_user_end_command(user_meta.user_id, "")
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
         except Exception as e:
             return
 
-    def _menu_morning_m(self, user_meta: user.User,message: dict = ()):
+    def _menu_morning_m(self, user_meta: user.User, message: dict = ()):
         try:
             payload = json.loads(message["payload"])["button"]
             if "On_morning_news" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
-                user_meta.add(self.FILE_COMAND_MORNING_M, 1)
+                self.database.write_user_end_command(user_meta.user_id, "")
+                self.database.write_user_morning_m(user_meta.user_id, 1)
                 return {self.ANS_MESSAGE: "{0}, утренняя рассылка включена".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Off_morning_news" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
-                user_meta.add(self.FILE_COMAND_MORNING_M, 0)
+                self.database.write_user_end_command(user_meta.user_id, "")
+                self.database.write_user_morning_m(user_meta.user_id, 0)
                 return {self.ANS_MESSAGE: "{0}, утренняя рассылка отключена".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Main_menu" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
+                self.database.write_user_end_command(user_meta.user_id, "")
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
         except Exception as e:
             return
 
@@ -270,23 +308,27 @@ class Command():
         try:
             payload = json.loads(message["payload"])["button"]
             if "On_evening_news" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
-                user_meta.add(self.FILE_COMAND_EVENING_M, 1)
+                self.database.write_user_end_command(user_meta.user_id, "")
+                self.database.write_user_evening_m(user_meta.user_id, 1)
                 return {self.ANS_MESSAGE: "{0}, вечерняя рассылка включена".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Off_evening_news" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
-                user_meta.add(self.FILE_COMAND_EVENING_M, 0)
+                self.database.write_user_end_command(user_meta.user_id, "")
+                self.database.write_user_evening_m(user_meta.user_id, 0)
                 return {self.ANS_MESSAGE: "{0}, вечерняя рассылка отключена".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Main_menu" == payload:
-                user_meta.add(self.FILE_COMAND_END, "")
+                self.database.write_user_end_command(user_meta.user_id, "")
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
-                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU)}
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
         except Exception as e:
             return
-
-
 
 
 if __name__ == "__main__":

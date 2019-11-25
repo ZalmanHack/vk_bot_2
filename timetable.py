@@ -4,7 +4,7 @@ import os
 
 
 class Timetable():
-    def __init__(self, sys_path: str = "", time_delta_hour: int = 3):
+    def __init__(self, sys_path: str = "",  time_delta_hour: int = 3):
         # часовой пояс
         self.time_delta_hour = time_delta_hour
         self.time_delta = datetime.timedelta(hours=self.time_delta_hour, minutes=0)
@@ -13,7 +13,6 @@ class Timetable():
         if not os.path.exists(self.folder_path):
             os.makedirs(self.folder_path)
         # получение расписания
-        self.timetable = self._open_file_json("timetable")
         self.call_timetable = self._open_file_json("call_timetable")
 
     def _open_file_json(self, name):
@@ -84,82 +83,83 @@ class Timetable():
     def get_week_type(self, type: str = "now"):
         return self._get_week_type(type)["rus"]
 
-    def get_week(self, type: str = "now"):
+    def get_week(self, timetable=None, type: str = "now"):
         try:
-            week_type = self._get_week_type(type)["eng"]
-            data_week = self.timetable[self._get_week_type(type)["eng"]]
-            result = self._get_week(week_type, data_week)
-            if len(result) != 0:
-                return result
+            if timetable is not None:
+                week_type = self._get_week_type(type)["eng"]
+                data_week = timetable[self._get_week_type(type)["eng"]]
+                result = self._get_week(week_type, data_week)
+                if len(result) != 0:
+                    return result
         except Exception as e:
             return
 
-    def get_day(self, day: str = "1"):
+    def get_day(self, timetable=None, day: str = "1"):
         try:
-            if day not in self.timetable[self._get_week_type('now')["eng"]]:
-                return
-            data_day = self.timetable[self._get_week_type('now')["eng"]][day]
-            result = self._get_day(day, data_day)
-            if len(result) == 0:
-                return
+            if timetable is not None:
+                if day in timetable[self._get_week_type('now')["eng"]]:
+                    data_day = timetable[self._get_week_type('now')["eng"]][day]
+                    result = self._get_day(day, data_day)
+                    if len(result) != 0:
+                        return result
         except Exception as e:
             return
-        return result
 
-    def get_today(self):
-        time = datetime.datetime.now(datetime.timezone.utc) + self.time_delta
-        day = time.weekday() + 1  # + 1 чтобы было от 1 до 7
-        return self.get_day(str(day))
+    def get_today(self, timetable=None):
+        if timetable is not None:
+            time = datetime.datetime.now(datetime.timezone.utc) + self.time_delta
+            day = time.weekday() + 1  # + 1 чтобы было от 1 до 7
+            return self.get_day(timetable, str(day))
 
-    def get_tomorrow(self):
-        time = datetime.datetime.now(datetime.timezone.utc) + self.time_delta
-        day = time.weekday() + 2  # + 1 чтобы было от 1 до 7 и + 1 для завтра
-        if day > 7:
-            day = 1
-        return self.get_day(str(day))
+    def get_tomorrow(self, timetable=None):
+        if timetable is not None:
+            time = datetime.datetime.now(datetime.timezone.utc) + self.time_delta
+            day = time.weekday() + 2  # + 1 чтобы было от 1 до 7 и + 1 для завтра
+            if day > 7:
+                day = 1
+            return self.get_day(timetable, str(day))
 
-    def get_all(self):
+    def get_all(self, timetable=None):
         try:
-            result = self._get_weeks(self.timetable)
-            if len(result) != 0:
-                return result
+            if timetable is not None:
+                result = self._get_weeks(timetable)
+                if len(result) != 0:
+                    return result
         except Exception as e:
             return "Произошла ошибка"
-        return "Пар нет"
 
-    def get_schedule(self, type: str = "now", day: str = "1", schedule: str = "1"):
+    def get_schedule(self, timetable=None, type: str = "now", day: str = "1", schedule: str = "1"):
         try:
-            if day not in self.timetable[self._get_week_type(type)["eng"]]:
-                return "Пар нет"
-            if schedule not in self.timetable[self._get_week_type(type)["eng"]][day]:
-                return "Пар нет"
-            data_schedule = self.timetable[self._get_week_type(type)["eng"]][day][schedule]
-            result = self._get_schedule(schedule, data_schedule)
-            if len(result) != 0:
-                return result
+            if timetable is not None:
+                if day in timetable[self._get_week_type(type)["eng"]]:
+                    if schedule in timetable[self._get_week_type(type)["eng"]][day]:
+                        data_schedule = timetable[self._get_week_type(type)["eng"]][day][schedule]
+                        result = self._get_schedule(schedule, data_schedule)
+                        if len(result) != 0:
+                            return result
         except Exception as e:
             return "Произошла ошибка"
-        return "Пар нет"
 
-    def get_schedule_now(self, time=None):
+    def get_schedule_now(self, timetable=None, time=None): # GOOD
         try:
-            if time is None:
-                time = datetime.datetime.now(datetime.timezone.utc) + self.time_delta
-            type = self._get_week_type("now")["eng"]
-            day = str(time.weekday() + 1)  # от 0 до 6
-            schedule = "{0}:{1}".format(time.hour, time.minute)
-            if schedule not in self.call_timetable:
-                return
-            if day not in self.timetable[self._get_week_type(type)["eng"]]:
-                return
-            if self.call_timetable[schedule] not in self.timetable[self._get_week_type(type)["eng"]][day]:
-                return
-            data_schedule = self.timetable[self._get_week_type(type)["eng"]][day][self.call_timetable[schedule]]
-            result = self._get_schedule(self.call_timetable[schedule], data_schedule)
-            if len(result) != 0:
-                return result
+            if timetable is not None:
+                if time is None:
+                    time = datetime.datetime.now(datetime.timezone.utc) + self.time_delta
+                type = self._get_week_type("now")["eng"]
+                day = str(time.weekday() + 1)  # от 0 до 6
+                schedule = "{0}:{1}".format(time.hour, time.minute)
+                if schedule not in self.call_timetable:
+                    return
+                if day not in timetable[self._get_week_type(type)["eng"]]:
+                    return
+                if self.call_timetable[schedule] not in timetable[self._get_week_type(type)["eng"]][day]:
+                    return
+                data_schedule = timetable[self._get_week_type(type)["eng"]][day][self.call_timetable[schedule]]
+                result = self._get_schedule(self.call_timetable[schedule], data_schedule)
+                if len(result) != 0:
+                    return result
         except Exception as e:
-            return "Произошла ошибка"
+            return
 
     def get_call_timetable(self):
         try:

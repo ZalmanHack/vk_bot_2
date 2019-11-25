@@ -18,7 +18,8 @@ import logining
 
 class Server:
 
-    def __init__(self, api_token, group_id, sys_path: str = "", server_name: str = "Empty", time_delta_hour: int = 3):
+    def __init__(self, api_token: str = "", group_id: int = 0, sys_path: str = "", base_name: str = "Default",
+                 server_name: str = "Empty", time_delta_hour: int = 3):
         # инициализируем часовой пояс
         self.time_delta_hour = time_delta_hour
         self.time_delta = datetime.timedelta(hours=self.time_delta_hour, minutes=0)
@@ -38,12 +39,13 @@ class Server:
         # Для вызова методов vk_api
         self.vk_api = self.vk.get_api()
         # --------------------------------------------------------------------------------------------------------------
-        # инициализация класса, обрабатывающего команды
-        self.command = command_headman.Command_headman(self.folder_path, self.time_delta_hour)
-        self.log = logining.Logining(self.folder_path, self.time_delta_hour)
-        # --------------------------------------------------------------------------------------------------------------
         # инициализация базы данных
-        self.database = database.DataBase(sys_path, "data-test-bot")
+        self.base_name = base_name
+        self.database = database.DataBase(sys_path, self.base_name)
+        # --------------------------------------------------------------------------------------------------------------
+        # инициализация класса, обрабатывающего команды
+        self.command = command_headman.Command_headman(self.folder_path, self.time_delta_hour, self.base_name)
+        self.log = logining.Logining(self.folder_path, self.time_delta_hour)
 
     def _get_document(self, file_path, file_name, owner_id):
         try:
@@ -72,7 +74,16 @@ class Server:
         user = self.vk_api.users.get(user_id=user_id)[0]
         return [user["first_name"], user["last_name"]]
 
-    def _upload_attachment(self, answer: dict = ()):
+    def _upload_attachments(self, answers=None):
+        if type(answers) == list:
+            for item in answers:
+                item = self.__upload_attachment(item)
+            return answers
+        elif type(answers) == dict:
+            answers = self.__upload_attachment(answers)
+            return answers
+
+    def __upload_attachment(self, answer:dict = ()):
         if "attachment" in answer:
             file_path = answer["attachment"]["file_path"]
             file_name = answer["attachment"]["file_name"]
@@ -85,7 +96,16 @@ class Server:
             answer["attachment"] = result
         return answer
 
-    def _decode_keyboard(self, answer: dict = ()):
+    def _decode_keyboards(self, answers=None):
+        if type(answers) == list:
+            for item in answers:
+                item = self.__decode_keyboard(item)
+            return answers
+        elif type(answers) == dict:
+            answers = self.__decode_keyboard(answers)
+            return answers
+
+    def __decode_keyboard(self, answer: dict = ()):
         try:
             answer["keyboard"] = json.dumps(answer["keyboard"], ensure_ascii=False).encode("utf-8").decode("utf-8")
             return answer
@@ -94,13 +114,21 @@ class Server:
 
     def _send_message(self, message=None, peer_id=None, text=None, keyboard=None, attachment=None):
         try:
-            if message is None:
-                message: dict = {"peer_id": peer_id, "message": text, "random_id": random.randint(1, 2147483647)}
+            if type(message) == list:
+                for item in message:
+                    self.vk.method("messages.send", item)
+                    # print("ITEM     ", item)
+            elif type(message) == dict:
+                self.vk.method("messages.send", message)
+                # print("MESSAGE", message)
+            else:
+                answer: dict = {"peer_id": peer_id, "message": text, "random_id": random.randint(1, 2147483647)}
                 if keyboard is not None:
-                    message["keyboard"] = keyboard
+                    answer["keyboard"] = keyboard
                 if attachment is not None:
-                    message["attachment"] = attachment
-            self.vk.method("messages.send", message)
+                    answer["attachment"] = attachment
+                self.vk.method("messages.send", answer)
+                # print("STATIC", answer)
         except Exception as e:
             # logining(sys._getframe().f_code.co_name, E.args)
             return False
@@ -109,20 +137,13 @@ class Server:
     def mailing(self):
         while True:
             print("mailing")
-            answer = None
-            # получаекм список участников сообщества
-            all_groups_id = self.vk.method("groups.getMembers", {"group_id": str(self.group_id)})["items"]
-            _time = datetime.datetime.now(datetime.timezone.utc) + self.time_delta
-            for id in all_groups_id:
-                first_name, last_name = self._get_user_name(id)
-                answer = self.command.mailing(id, first_name, last_name, "timetable", _time)
-                if answer is None:
-                    break
-                elif answer is not False:
-                    self._send_message(answer)
-            if answer is not None:
-                time.sleep(100)  # если ответ не пустота то пары есть, нужно заснуть чтобы не было повторной расслыки
-            self.log.error(sys._getframe().f_code.co_name, "123")
+            dtime = datetime.datetime.now(datetime.timezone.utc) + self.time_delta
+            groups_ids = self.database.get_all_ids_groups()
+            for group_id in groups_ids:
+                answers_for_group = self.command.mailing(group_id, dtime)
+                self._send_message(message=answers_for_group)
+            time.sleep(100)
+            # self.log.error(sys._getframe().f_code.co_name, "123")
 
     def is_follower(self, id=None):
         if id is not None:
@@ -141,8 +162,8 @@ class Server:
                 if self.is_follower(user_id):
                     message = event.object["message"]
                     answer = self.command.message(user_id, first_name, second_name, message)
-                    answer = self._upload_attachment(answer)
-                    answer = self._decode_keyboard(answer)
+                    answer = self._upload_attachments(answer)
+                    answer = self._decode_keyboards(answer)
                     self._send_message(answer)
                 else:
                     self._send_message(peer_id=user_id, text=first_name + ", сначала подпишитесь на сообщество!")
@@ -153,10 +174,9 @@ if __name__ == "__main__":
     if not os.path.exists(dataPath):
         os.makedirs(dataPath)
     token = "c3eb50d9421632ce5bfb3927d54f27118e2d90307792e70f9212b5ba075403d076c29a342d8ab157c2368"
-    group_id = 80694145
     server = "test"
-    serv = Server(token, group_id, dataPath, server, 2)
+    serv = Server(api_token=token, group_id=80694145, sys_path=dataPath, base_name="DonNTU", server_name=server, time_delta_hour=2)
     p2 = Thread(target=serv.mailing)
     p1 = Thread(target=serv.listen)
     p1.start()
-    # p2.start()
+
