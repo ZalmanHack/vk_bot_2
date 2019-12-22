@@ -12,7 +12,7 @@ class Command_headman(Command):
                     self.keyboards.get_button(label="Расписание звонков", color="default", payload="Call_sch")],
                    [self.keyboards.get_button(label="Тип недели", color="default", payload="Type_of_week")],
                    [self.keyboards.get_button(label="Учебный план", color="default", payload="Academic_plan")],
-                   [self.keyboards.get_button(label="Настройки рассылки", color="default", payload="Mailing_Settings"),
+                   [self.keyboards.get_button(label="Настройки", color="default", payload="Settings"),
                     self.keyboards.get_button(label="Режим бога", color="negative", payload="Headman_Settings")]]
         self.keyboards.addKeyboard(self.KBRD_MENU, False, None, buttons)
         # главное меню старосты ----------------------------------------------------------------------------------------
@@ -81,7 +81,7 @@ class Command_headman(Command):
                             self.AMS_RAND_ID: random.randint(1, 2147483647)}
         self.database.write_user_end_command(user_meta.user_id, self.KBRD_HEADMAN)
         # получаем id людей нашей группы
-        group_id = self.database.get_group_id(user_meta.user_id)
+        group_id = self.database.get_group_id(user_id=user_meta.user_id)
         users_ids = self.database.get_group_users_ids(group_id)
         answers = []
         for user_id in users_ids:

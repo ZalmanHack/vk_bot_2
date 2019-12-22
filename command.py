@@ -16,7 +16,7 @@ class Command():
                     self.keyboards.get_button(label="Расписание звонков", color="default", payload="Call_sch")],
                    [self.keyboards.get_button(label="Тип недели", color="default", payload="Type_of_week")],
                    [self.keyboards.get_button(label="Учебный план", color="default", payload="Academic_plan")],
-                   [self.keyboards.get_button(label="Настройки рассылки", color="default", payload="Mailing_Settings")]]
+                   [self.keyboards.get_button(label="Настройки", color="default", payload="Settings")]]
         self.keyboards.addKeyboard(self.KBRD_MENU, False, None, buttons)
         # расписание ---------------------------------------------------------------------------------------------------
         buttons = [[self.keyboards.get_button(label="На сегодня", color="positive", payload="Sch_for_today"),
@@ -41,6 +41,7 @@ class Command():
         buttons = [
             [self.keyboards.get_button(label="Утренняя рассылка", color="default", payload="Morning_newsletter")],
             [self.keyboards.get_button(label="Вечерняя рассылка", color="default", payload="Evening_newsletter")],
+            [self.keyboards.get_button(label="Изменить группу", color="default", payload="Change_group")],
             [self.keyboards.get_button(label="Главное меню", color="negative", payload="Main_menu")]]
         self.keyboards.addKeyboard(self.KBRD_SETTINGS, False, None, buttons)
         # настройки утренней рассылки ----------------------------------------------------------------------------------
@@ -53,6 +54,10 @@ class Command():
                    [self.keyboards.get_button(label="Отключить рассылку", color="default", payload="Off_evening_news")],
                    [self.keyboards.get_button(label="Главное меню", color="negative", payload="Main_menu")]]
         self.keyboards.addKeyboard(self.KBRD_EVENING_M, False, None, buttons)
+        # пустая клавиатура --------------------------------------------------------------------------------------------
+        buttons = []
+        self.keyboards.addKeyboard(self.KBRD_EMPTY, False, None, buttons)
+
 
     def __init__(self, sys_path: str = "", time_delta_hour: int = 3, base_name: str = "Default"):
         # инициализация времени и часового пояса
@@ -73,6 +78,7 @@ class Command():
         self.KBRD_SETTINGS = "settings"
         self.KBRD_MORNING_M = "morning_mailing"
         self.KBRD_EVENING_M = "evening_mailing"
+        self.KBRD_EMPTY = "empty"
         # модуль расписания
         self.timetale = timetable.Timetable(self.sys_path, self.time_delta_hour)
         # модуль клавиатур
@@ -121,11 +127,30 @@ class Command():
     def message(self, user_id: int = 0, first_name: str = "No name", second_name: str = "No name", message: dict = ()):
         # класс работы с метаданными пользователя (по id)
         user_meta = user.User(user_id, first_name, second_name)
-        # обработка входящего сообщения и получение ответа
-        response = self._menus_processing(user_meta, message)
-        # дополнение ответа
-        response = self._complement_response(user_meta, response)
-        return response
+        # проверка наличия студента в бд
+        if not self.database.load_user(user_id):
+            return self._registration_user(user_meta, message)
+        else:
+            # обработка входящего сообщения и получение ответа
+            response = self._menus_processing(user_meta, message)
+            # дополнение ответа
+            response = self._complement_response(user_meta, response)
+            return response
+
+    def _registration_user(self, user_meta: user.User, message: dict = ()):
+        group_id = self.database.get_group_id(group_name=message["text"])
+        if self.database.init_user(user_id=user_meta.user_id, group_id=group_id):
+            return {self.ANS_MESSAGE: "{0}, Вы успешно зарегистрированы в группе {1}.\n"
+                                      "Вот, что я могу:".format(user_meta.first_name, message["text"]),
+                    self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
+                    self.ANS_PEER_ID: user_meta.user_id,
+                    self.AMS_RAND_ID: random.randint(1, 2147483647)}
+        groups_names = "\n".join(self.database.get_groups_names())
+        return {self.ANS_MESSAGE: "{0}, введите название вашей группы.\n"
+                                  "Вот список групп:\n{1}".format(user_meta.first_name, groups_names),
+                self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_EMPTY),
+                self.ANS_PEER_ID: user_meta.user_id,
+                self.AMS_RAND_ID: random.randint(1, 2147483647)}
 
     def _menus_processing(self, user_meta: user.User, message: dict = ()):
         # получаем последнюю команду (в файл записываются только те, что имеют контекст, например открытое меню)
@@ -179,7 +204,7 @@ class Command():
                         self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_ACC_PLAN),
                         self.ANS_PEER_ID: user_meta.user_id,
                         self.AMS_RAND_ID: random.randint(1, 2147483647)}
-            if "Mailing_Settings" == payload:
+            if "Settings" == payload:
                 self.database.write_user_end_command(user_meta.user_id, self.KBRD_SETTINGS)
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
                         self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_SETTINGS),
@@ -191,7 +216,7 @@ class Command():
     def _menu_timetable(self, user_meta: user.User, message: dict = ()):
         try:
             payload = json.loads(message["payload"])["button"]
-            group_id = self.database.get_group_id(user_meta.user_id)
+            group_id = self.database.get_group_id(user_id=user_meta.user_id)
             table = self.database.get_timetable(group_id)
             if "Sch_for_today" == payload:
                 info = self.timetale.get_today(table)
@@ -269,6 +294,14 @@ class Command():
                         self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_EVENING_M),
                         self.ANS_PEER_ID: user_meta.user_id,
                         self.AMS_RAND_ID: random.randint(1, 2147483647)}
+            if "Change_group" == payload:
+                self.database.delete_user(user_meta.user_id)
+                groups_names = "\n".join(self.database.get_groups_names())
+                return {self.ANS_MESSAGE: "{0}, введите название вашей группы.\n"
+                                          "Вот список групп:\n{1}".format(user_meta.first_name, groups_names),
+                        self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_EMPTY),
+                        self.ANS_PEER_ID: user_meta.user_id,
+                        self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Main_menu" == payload:
                 self.database.write_user_end_command(user_meta.user_id, "")
                 return {self.ANS_MESSAGE: "{0}, выбери один из вариантов:".format(user_meta.first_name),
@@ -283,14 +316,14 @@ class Command():
             payload = json.loads(message["payload"])["button"]
             if "On_morning_news" == payload:
                 self.database.write_user_end_command(user_meta.user_id, "")
-                self.database.write_user_morning_m(user_meta.user_id, 1)
+                self.database.write_user_morning_m(user_meta.user_id, True)
                 return {self.ANS_MESSAGE: "{0}, утренняя рассылка включена".format(user_meta.first_name),
                         self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
                         self.ANS_PEER_ID: user_meta.user_id,
                         self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Off_morning_news" == payload:
                 self.database.write_user_end_command(user_meta.user_id, "")
-                self.database.write_user_morning_m(user_meta.user_id, 0)
+                self.database.write_user_morning_m(user_meta.user_id, False)
                 return {self.ANS_MESSAGE: "{0}, утренняя рассылка отключена".format(user_meta.first_name),
                         self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
                         self.ANS_PEER_ID: user_meta.user_id,
@@ -309,14 +342,14 @@ class Command():
             payload = json.loads(message["payload"])["button"]
             if "On_evening_news" == payload:
                 self.database.write_user_end_command(user_meta.user_id, "")
-                self.database.write_user_evening_m(user_meta.user_id, 1)
+                self.database.write_user_evening_m(user_meta.user_id, True)
                 return {self.ANS_MESSAGE: "{0}, вечерняя рассылка включена".format(user_meta.first_name),
                         self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
                         self.ANS_PEER_ID: user_meta.user_id,
                         self.AMS_RAND_ID: random.randint(1, 2147483647)}
             if "Off_evening_news" == payload:
                 self.database.write_user_end_command(user_meta.user_id, "")
-                self.database.write_user_evening_m(user_meta.user_id, 0)
+                self.database.write_user_evening_m(user_meta.user_id, False)
                 return {self.ANS_MESSAGE: "{0}, вечерняя рассылка отключена".format(user_meta.first_name),
                         self.ANS_KEYBOARD: self.keyboards.getKeyboard(self.KBRD_MENU),
                         self.ANS_PEER_ID: user_meta.user_id,

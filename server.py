@@ -12,6 +12,7 @@ from vk_api.bot_longpoll import VkBotEventType
 from vk_api.bot_longpoll import VkBotLongPoll
 
 import command_headman
+import command
 import database
 import logining
 
@@ -41,10 +42,11 @@ class Server:
         # --------------------------------------------------------------------------------------------------------------
         # инициализация базы данных
         self.base_name = base_name
-        self.database = database.DataBase(sys_path, self.base_name)
+        self.database = database.DataBase(self.folder_path, self.base_name)
         # --------------------------------------------------------------------------------------------------------------
         # инициализация класса, обрабатывающего команды
-        self.command = command_headman.Command_headman(self.folder_path, self.time_delta_hour, self.base_name)
+        self.command_hm = command_headman.Command_headman(self.folder_path, self.time_delta_hour, self.base_name)
+        self.command = command.Command(self.folder_path, self.time_delta_hour, self.base_name)
         self.log = logining.Logining(self.folder_path, self.time_delta_hour)
 
     def _get_document(self, file_path, file_name, owner_id):
@@ -161,10 +163,14 @@ class Server:
                 first_name, second_name = self._get_user_name(user_id)
                 if self.is_follower(user_id):
                     message = event.object["message"]
-                    answer = self.command.message(user_id, first_name, second_name, message)
+                    if self.database.get_user_headman(user_id):
+                        answer = self.command_hm.message(user_id, first_name, second_name, message)
+                    else:
+                        answer = self.command.message(user_id, first_name, second_name, message)
                     answer = self._upload_attachments(answer)
                     answer = self._decode_keyboards(answer)
                     self._send_message(answer)
+
                 else:
                     self._send_message(peer_id=user_id, text=first_name + ", сначала подпишитесь на сообщество!")
 
@@ -179,4 +185,5 @@ if __name__ == "__main__":
     p2 = Thread(target=serv.mailing)
     p1 = Thread(target=serv.listen)
     p1.start()
+    p2.start()
 

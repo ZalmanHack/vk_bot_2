@@ -32,7 +32,7 @@ class DataBase():
         class Users(BaseModel):
             User_id = BigIntegerField()
             End_command = CharField(null=True)
-            Buffer_data = BlobField(null=True)
+            Buffer_str = CharField(null=True)
             Morning_mailing = BooleanField()
             Evening_mailing = BooleanField()
             Headman = BooleanField()
@@ -57,26 +57,39 @@ class DataBase():
     заменить наотправку запроса о том что человека нет и пусть он введет свою группу
     """
 
-    def init_user(self, user_id=None, group=None):
-        if user_id is None:
-            return False
-        else:
-            user = self.Users.select().where(self.Users.User_id == int(user_id))
-            if user.exists():
-                if group is not None:
-                    group_row = self.Groups.select().where(self.Groups.Name == str(group))
-                    if user.first().Group.Name != str(group) and group_row.exists():
-                        user.first().Group = group_row.first()
-                        user.first().save()
-            else:
-                group_rows = self.Groups.select().where(self.Groups.Name == str(group))
-                if group_rows.exists():
-                    self.Users.create(User_id=user_id, End_command="", Buffer_data="2222", Morning_mailing=1,
-                                      Evening_mailing=1, Headman=0,
-                                      Group=group_rows.first())
+    def init_user(self, user_id=None, group_id=None, buffer: str = "",
+                  end_command: str = "", headman: bool = False,
+                  morning: bool = True, evening: bool = True):
+        if type(user_id) == int and type(group_id) == int:
+            user = self.Users.select().where(self.Users.User_id == user_id)
+            group_row = self.Groups.select().where(self.Groups.id == group_id)
+            if group_row.exists():
+                if user.exists():
+                    user.first().Group = group_row.first()
+                    user.first().End_command = end_command
+                    user.first().headman = headman
+                    user.first().Morning_mailing = morning
+                    user.first().Evening_mailing = evening
+                    user.first().Buffer_str = buffer
+                    user.first().save()
                 else:
-                    return False
-        return True
+                    self.Users.create(User_id=user_id,
+                                      End_command=end_command,
+                                      Buffer_str=buffer,
+                                      Morning_mailing=morning,
+                                      Evening_mailing=evening,
+                                      Headman=headman,
+                                      Group=group_row.first())
+                return True
+        return False
+
+    def load_user(self, user_id=None):
+        if type(user_id) == int:
+            user = self.Users.select().where(self.Users.User_id == user_id)
+            if user.exists():
+                return True
+        return False
+
 
     def get_morning_m(self, user_id=None):
         if user_id is not None:
@@ -93,18 +106,32 @@ class DataBase():
         return False
 
     def get_group_name(self, user_id=None):
-        if user_id is not None:
-            users = self.Users.select().where(self.Users.User_id == int(user_id))
+        if type(user_id) == int:
+            users = self.Users.select().where(self.Users.User_id == group_id)
             if users.exists():
                 return users.first().Group.Name
         return
 
-    def get_group_id(self, user_id=None):
-        if user_id is not None:
-            users = self.Users.select().where(self.Users.User_id == int(user_id))
+    def get_group_id(self, user_id=None, group_name=None):
+        if type(group_name) == str:
+            groups = self.Groups.select().where(self.Groups.Name == group_name)
+            if groups.exists():
+                return groups.first().id
+        if type(user_id) == int:
+            users = self.Users.select().where(self.Users.User_id == user_id)
+            if users.exists():
+                return users.first().Group_id
+        elif type(user_id) == int and type(group_name) == str:
+            users = self.Users.select().where(self.Users.User_id == user_id, self.Users.Group.name == group_name)
             if users.exists():
                 return users.first().Group_id
         return
+
+    def get_groups_names(self):
+        groups = self.Groups.select()
+        if groups.exists():
+            return [a.Name for a in groups]
+        return []
 
     def get_department_name(self, user_id=None):
         if user_id is not None:
@@ -159,7 +186,8 @@ class DataBase():
         if type(user_id) == int:
             result = self.Users.select().where(self.Users.User_id == user_id)
             if result.exists():
-                return result.first().Morning_mailing
+                return bool(result.first().Morning_mailing)
+        return False
 
     def write_user_morning_m(self, user_id=None, value: int = 1):
         if type(user_id) == int:
@@ -172,14 +200,28 @@ class DataBase():
         if type(user_id) == int:
             result = self.Users.select().where(self.Users.User_id == user_id)
             if result.exists():
-                return result.first().Evening_mailing
+                return bool(result.first().Evening_mailing)
+        return False
 
     def write_user_evening_m(self, user_id=None, value: int = 1):
         if type(user_id) == int:
             user = self.Users.select().where(self.Users.User_id == user_id)
             if user.exists():
-                user.first().Morning_evening = value
+                user.first().Evening_mailing = value
                 user.first().save()
+
+    def get_user_headman(self, user_id=None):
+        if type(user_id) == int:
+            result = self.Users.select().where(self.Users.User_id == user_id)
+            if result.exists():
+                return bool(result.first().Headman)
+            return False
+
+    def delete_user(self, user_id=None):
+        if type(user_id) == int:
+            users = self.Users.select().where(self.Users.User_id == user_id)
+            if users.exists():
+                users.first().delete_instance()
 
     def _TEST_create(self):
         timetab = {
@@ -371,7 +413,7 @@ class DataBase():
 
         self.Groups.create(Name="СИИ-16", Timetable=timetab,
                            Department=self.Departments.get(self.Departments.Name == "ИИСА"))
-        self.Groups.create(Name="ПОИС-16", Timetable=timetab,
+        self.Groups.create(Name="ПОВТ-16", Timetable=timetab,
                            Department=self.Departments.get(self.Departments.Name == "ИИСА"))
         self.Groups.create(Name="ПИ-16", Timetable=timetab,
                            Department=self.Departments.get(self.Departments.Name == "ПИ"))
@@ -379,13 +421,18 @@ class DataBase():
         self.Groups.create(Name="СИИ-16", Timetable=str.encode("Тут что то есть 😋", encoding='utf-8'),
                            Department=self.Departments.get(self.Departments.Name == "ИИСА"))
         """
-        self.init_user(88233396, "СИИ-16")
+        self.init_user(88233396, "СИИ-16", headman=True)
         self.init_user(216634551, "СИИ-16")
         self.init_user(151232514, "СИИ-16")
 
 
 if __name__ == "__main__":
-    data = DataBase(file_name="DonNTU")
+    dataPath = os.path.expanduser('~') + "\\.VK Bot 2\\test"
+    if not os.path.exists(dataPath):
+        os.makedirs(dataPath)
+
+
+    data = DataBase(dataPath,"DonNTU")
     data._TEST_create()
 
     print(data.get_all_ids_groups())
