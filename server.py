@@ -144,7 +144,7 @@ class Server:
             for group_id in groups_ids:
                 answers_for_group = self.command.mailing(group_id, dtime)
                 self._send_message(message=answers_for_group)
-            time.sleep(100)
+            time.sleep(30)
             # self.log.error(sys._getframe().f_code.co_name, "123")
 
     def is_follower(self, id=None):

@@ -8,7 +8,8 @@ class Command_headman(Command):
         self.KBRD_HEADMAN = "headman"
         self.KBRD_MAKE_ANN = "make_announcement"
         # главное меню -------------------------------------------------------------------------------------------------
-        buttons = [[self.keyboards.get_button(label="Расписание пар", color="default", payload="Couples_sch"),
+        buttons = [[self.keyboards.get_button(label="Сессия", color="primary", payload="Session")],
+                   [self.keyboards.get_button(label="Расписание пар", color="default", payload="Couples_sch"),
                     self.keyboards.get_button(label="Расписание звонков", color="default", payload="Call_sch")],
                    [self.keyboards.get_button(label="Тип недели", color="default", payload="Type_of_week")],
                    [self.keyboards.get_button(label="Учебный план", color="default", payload="Academic_plan")],

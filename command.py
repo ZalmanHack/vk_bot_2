@@ -12,7 +12,8 @@ class Command():
 
     def _init_keyboards(self):
         # главное меню -------------------------------------------------------------------------------------------------
-        buttons = [[self.keyboards.get_button(label="Расписание пар", color="default", payload="Couples_sch"),
+        buttons = [[self.keyboards.get_button(label="Сессия", color="primary", payload="Session")],
+                   [self.keyboards.get_button(label="Расписание пар", color="default", payload="Couples_sch"),
                     self.keyboards.get_button(label="Расписание звонков", color="default", payload="Call_sch")],
                    [self.keyboards.get_button(label="Тип недели", color="default", payload="Type_of_week")],
                    [self.keyboards.get_button(label="Учебный план", color="default", payload="Academic_plan")],
@@ -118,11 +119,12 @@ class Command():
         # вечерняя рассылка
         if user_id is not None and table is not None:
             if self.database.get_evening_m(user_id):
-                message = self.timetale.get_tomorrow(table)
-                if message is not None:
-                    return {self.ANS_MESSAGE: message,
-                            self.AMS_RAND_ID: random.randint(1, 2147483647),
-                            self.ANS_PEER_ID: user_id}
+                if "{0}:{1}".format(time.hour, time.minute) == "18:00":
+                    message = self.timetale.get_tomorrow(table)
+                    if message is not None:
+                        return {self.ANS_MESSAGE: message,
+                                self.AMS_RAND_ID: random.randint(1, 2147483647),
+                                self.ANS_PEER_ID: user_id}
 
     def message(self, user_id: int = 0, first_name: str = "No name", second_name: str = "No name", message: dict = ()):
         # класс работы с метаданными пользователя (по id)
